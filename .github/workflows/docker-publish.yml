@@ -7,7 +7,7 @@ on:
     tags:
       - v*
 env:
-  IMAGE_NAME: cleanarr 
+  IMAGE_NAME: hrenard/cleanarr 
 
 jobs:
   push:
