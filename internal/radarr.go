@@ -1,13 +1,11 @@
-package radarr
+package internal
 
 import (
 	"encoding/json"
-	"fmt"
 	"sync"
 
 	units "github.com/docker/go-units"
 	resty "github.com/go-resty/resty/v2"
-	"github.com/hrenard/cleanarr/servarr"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -22,7 +20,7 @@ type jsonError struct {
 	Error string `json:"error"`
 }
 
-func New(config *servarr.Config) Radarr {
+func NewRadarr(config ServarrConfig) Radarr {
 	radarr := Radarr{
 		client: resty.New().
 			SetHostURL(config.HostPath+"/api/v3").
@@ -72,7 +70,7 @@ func (r Radarr) handleError(resp *resty.Response, err error) {
 	}
 }
 
-func (r Radarr) Movies() []Movie {
+func (r Radarr) Movies() MovieList {
 	resp, err := r.Request().Get("/movie")
 	r.handleError(resp, err)
 
@@ -84,54 +82,38 @@ func (r Radarr) Movies() []Movie {
 	return movies
 }
 
-func (r Radarr) DeleteMovie(movie *Movie) {
-	resp, err := r.Request().
-		SetQueryParam("deleteFiles", "true").
-		Delete(fmt.Sprintf("/movie/%d", movie.Id))
-	r.handleError(resp, err)
-	r.log.Printf("%s deleted", movie.Title)
+func (r Radarr) DeleteMovie(movie Movie) {
+	// resp, err := r.Request().
+	// 	SetQueryParam("deleteFiles", "true").
+	// 	Delete(fmt.Sprintf("/movie/%d", movie.Id))
+	// r.handleError(resp, err)
+	r.log.Debugf("%s deleted", movie.Title)
 }
 
-func (r Radarr) PurgeExpiredMovies() {
-	movies := r.Movies()
+func (r Radarr) DeleteMovies(movies MovieList) {
 	for _, movie := range movies {
-		if movie.HasFile() {
-			if r.maxDays > 0 {
-				if movie.Expired(r.maxDays) {
-					r.log.Debugf("%s expired", movie.Title)
-					r.DeleteMovie(&movie)
-				}
-			}
-		}
+		r.DeleteMovie(movie)
 	}
-}
-
-func (r Radarr) PurgeFirstInMovies() {
-	if r.maxBytes > 0 {
-		movies := r.Movies()
-		var totalBytes int
-		var oldestFile *Movie
-		for _, movie := range movies {
-			if movie.HasFile() {
-				totalBytes += movie.File.Size
-				if oldestFile == nil || oldestFile.File.DateAdded.After(*movie.File.DateAdded) {
-					m := movie
-					oldestFile = &m
-				}
-			}
-		}
-		if totalBytes > r.maxBytes {
-			r.log.Debugf("%s in excess", units.HumanSize(float64(totalBytes-r.maxBytes)))
-			r.DeleteMovie(oldestFile)
-			if totalBytes-oldestFile.File.Size > r.maxBytes {
-				r.PurgeFirstInMovies()
-			}
-		}
-	}
+	r.log.Printf("%d movies deleted, %s freed", len(movies), units.BytesSize(float64(movies.Size())))
 }
 
 func (r Radarr) Tick(wg *sync.WaitGroup) {
-	r.PurgeExpiredMovies()
-	r.PurgeFirstInMovies()
+	movies := r.Movies().
+		WithFile().
+		ByFileDate()
+
+	var garbage MovieList
+	totalSize := movies.Size()
+
+	for _, movie := range movies {
+		if movie.Expired(r.maxDays) || (r.maxBytes > 0 && totalSize-garbage.Size() > r.maxBytes) {
+			garbage = append(garbage, movie)
+		}
+	}
+
+	if len(garbage) > 0 {
+		r.DeleteMovies(garbage)
+	}
+
 	wg.Done()
 }

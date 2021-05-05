@@ -5,21 +5,21 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hrenard/cleanarr/radarr"
-	"github.com/hrenard/cleanarr/servarr"
+	"github.com/hrenard/cleanarr/internal"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
 type CleanarrConfig struct {
 	Interval int
-	Radarr   []servarr.Config
+	Radarr   []internal.ServarrConfig
+	Sonarr   []internal.ServarrConfig
 }
 
 func main() {
 	log.SetFormatter(&log.TextFormatter{})
 	log.SetOutput(os.Stdout)
-	log.SetLevel(log.DebugLevel)
+	// log.SetLevel(log.DebugLevel)
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -38,9 +38,14 @@ func main() {
 		log.Fatalf("No radarr configured")
 	}
 
-	servarrList := make([]servarr.Servarr, len(config.Radarr))
-	for _, radarrConf := range config.Radarr {
-		servarrList[0] = radarr.New(&radarrConf)
+	servarrList := make([]internal.Servarr, len(config.Radarr)+len(config.Sonarr))
+
+	for i, radarrConf := range config.Radarr {
+		servarrList[i] = internal.NewRadarr(radarrConf)
+	}
+
+	for i, sonarrConf := range config.Sonarr {
+		servarrList[len(config.Radarr)+i] = internal.NewSonarr(sonarrConf)
 	}
 
 	log.Infof("Cleanarr is running")

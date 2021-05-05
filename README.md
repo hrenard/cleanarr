@@ -8,6 +8,7 @@ A small utility tasked to automatically clean radarr and sonarr files over time.
 
 ```yml
 #config.yml
+interval: 1 # optional, check every minutes
 
 radarr:
   - name: "radarr4k" # requried
