@@ -2,6 +2,7 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 
 	units "github.com/docker/go-units"
@@ -83,10 +84,10 @@ func (r Radarr) Movies() MovieList {
 }
 
 func (r Radarr) DeleteMovie(movie Movie) {
-	// resp, err := r.Request().
-	// 	SetQueryParam("deleteFiles", "true").
-	// 	Delete(fmt.Sprintf("/movie/%d", movie.Id))
-	// r.handleError(resp, err)
+	resp, err := r.Request().
+		SetQueryParam("deleteFiles", "true").
+		Delete(fmt.Sprintf("/movie/%d", movie.Id))
+	r.handleError(resp, err)
 	r.log.Debugf("%s deleted", movie.Title)
 }
 
