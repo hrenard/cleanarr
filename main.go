@@ -35,7 +35,7 @@ func main() {
 	}
 
 	if config.Radarr == nil {
-		log.Fatal("No radarr configured")
+		log.Fatalf("No radarr configured")
 	}
 
 	servarrList := make([]servarr.Servarr, len(config.Radarr))
@@ -43,6 +43,7 @@ func main() {
 		servarrList[0] = radarr.New(&radarrConf)
 	}
 
+	log.Infof("Cleanarr is running")
 	for {
 		var wg sync.WaitGroup
 		for _, s := range servarrList {

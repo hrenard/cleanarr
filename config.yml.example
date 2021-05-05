@@ -1,7 +1,0 @@
-interval: 2 # minutes
-radarr:
-  - name: radarr
-    hostPath: http://127.0.0.1:7878
-    apiKey: "****************"
-    maxDays: 90
-    maxSize: "2TB"

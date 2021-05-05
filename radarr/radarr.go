@@ -107,23 +107,25 @@ func (r Radarr) PurgeExpiredMovies() {
 }
 
 func (r Radarr) PurgeFirstInMovies() {
-	movies := r.Movies()
-	var totalBytes int
-	var oldestFile *Movie
-	for _, movie := range movies {
-		if movie.HasFile() {
-			totalBytes += movie.File.Size
-			if oldestFile == nil || oldestFile.File.DateAdded.After(*movie.File.DateAdded) {
-				m := movie
-				oldestFile = &m
+	if r.maxBytes > 0 {
+		movies := r.Movies()
+		var totalBytes int
+		var oldestFile *Movie
+		for _, movie := range movies {
+			if movie.HasFile() {
+				totalBytes += movie.File.Size
+				if oldestFile == nil || oldestFile.File.DateAdded.After(*movie.File.DateAdded) {
+					m := movie
+					oldestFile = &m
+				}
 			}
 		}
-	}
-	if totalBytes > r.maxBytes {
-		r.log.Debugf("%s in excess", units.HumanSize(float64(totalBytes-r.maxBytes)))
-		r.DeleteMovie(oldestFile)
-		if totalBytes-oldestFile.File.Size > r.maxBytes {
-			r.PurgeFirstInMovies()
+		if totalBytes > r.maxBytes {
+			r.log.Debugf("%s in excess", units.HumanSize(float64(totalBytes-r.maxBytes)))
+			r.DeleteMovie(oldestFile)
+			if totalBytes-oldestFile.File.Size > r.maxBytes {
+				r.PurgeFirstInMovies()
+			}
 		}
 	}
 }
