@@ -38,7 +38,7 @@ func main() {
 		log.Fatalf("No radarr configured")
 	}
 
-	servarrList := make([]internal.Servarr, len(config.Radarr)+len(config.Sonarr))
+	servarrList := make([]internal.IServarr, len(config.Radarr)+len(config.Sonarr))
 
 	for i, radarrConf := range config.Radarr {
 		servarrList[i] = internal.NewRadarr(radarrConf)

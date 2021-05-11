@@ -6,68 +6,15 @@ import (
 	"sync"
 
 	units "github.com/docker/go-units"
-	resty "github.com/go-resty/resty/v2"
-	log "github.com/sirupsen/logrus"
 )
 
 type Radarr struct {
-	client   *resty.Client
-	log      *log.Entry
-	maxDays  int
-	maxBytes int
-}
-
-type jsonError struct {
-	Error string `json:"error"`
+	Servarr
 }
 
 func NewRadarr(config ServarrConfig) Radarr {
-	radarr := Radarr{
-		client: resty.New().
-			SetHostURL(config.HostPath+"/api/v3").
-			SetQueryParam("apikey", config.ApiKey),
-		log: log.WithFields(log.Fields{
-			"app":  "radarr",
-			"name": config.Name,
-		}),
-	}
-
-	if config.MaxDays == nil && config.MaxSize == nil {
-		radarr.log.Fatal("No constraints, maxDays or maxSize required")
-	}
-
-	if config.MaxDays != nil {
-		radarr.maxDays = *config.MaxDays
-	}
-
-	if config.MaxSize != nil {
-		maxBytes, err := units.FromHumanSize(*config.MaxSize)
-		if err != nil {
-			radarr.log.Fatalf("Failed to parse maxSize: %s", err)
-		}
-		radarr.maxBytes = int(maxBytes)
-	}
-
-	return radarr
-}
-
-func (r Radarr) Request() *resty.Request {
-	return r.client.R()
-}
-
-func (r Radarr) handleError(resp *resty.Response, err error) {
-	if err != nil {
-		r.log.Errorf("request failed: %s", err)
-	}
-
-	if resp.StatusCode() != 200 {
-		var jsonErr jsonError
-		errLog := r.log.WithField("http_status", resp.StatusCode())
-		if err := json.Unmarshal(resp.Body(), &jsonErr); err != nil {
-			errLog.Errorf("request error: %s", resp.Body())
-		} else {
-			errLog.Errorf("request error: %s", jsonErr.Error)
-		}
+	return Radarr{
+		Servarr: NewServarr(config, "radarr"),
 	}
 }
 

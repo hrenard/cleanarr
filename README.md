@@ -16,6 +16,13 @@ radarr:
     apiKey: "xxxxxxxxxxx" # required
     maxDays: 90 # optional if maxSize
     maxSize: "2TB" # optional if maxDays
+
+sonarr:
+  - name: "sonarr" # requried
+    hostPath: "https://sonarr.mydomain.com" # required
+    apiKey: "xxxxxxxxxxx" # required
+    maxDays: 90 # optional if maxSize
+    maxSize: "2TB" # optional if maxDays
 ```
 
 ### Docker
@@ -29,8 +36,10 @@ $ docker run -v $PWD/config.yml:/config.yml ghcr.io/hrenard/cleanarr
 - [ ] Radarr
   - [x] Days policy
   - [x] Size policy
-  - [ ] Quantity polixy
+  - [ ] Quantity policy
 - [ ] Sonarr
-  - [ ] Days policy
-  - [ ] Size policy
-  - [ ] Quantity polixy
+  - [x] Days policy
+  - [x] Size policy
+  - [ ] Quantity policy
+  - [ ] Unmonitor season when all episodes are unmonitored ?
+  - [ ] Remove serie when all episodes are unmonitored ?
