@@ -2,6 +2,8 @@
 
 A small utility tasked to automatically clean radarr and sonarr files over time.
 
+The idea is to have a "rolling" media library where old media is deleted either because the disk quota is exceeded or because it has been there too long.
+
 ## Usage
 
 ### Configuration
