@@ -11,6 +11,7 @@ The idea is to have a "rolling" media library where old media is deleted either 
 ```yml
 #config.yml
 interval: 1 # optional, check every minutes
+dryRun: false # optional, do not perform actions
 
 radarr:
   - name: "radarr4k" # requried
@@ -18,6 +19,9 @@ radarr:
     apiKey: "xxxxxxxxxxx" # required
     maxDays: 90 # optional if maxSize
     maxSize: "2TB" # optional if maxDays
+    includeTags: # optional, includes all by default
+      - rolling
+    excludeTags: [] # optional, excludes nothing by default
 
 sonarr:
   - name: "sonarr" # requried
@@ -25,6 +29,9 @@ sonarr:
     apiKey: "xxxxxxxxxxx" # required
     maxDays: 90 # optional if maxSize
     maxSize: "2TB" # optional if maxDays
+    includeTags: [] # optional, includes all by default
+    excludeTags: # optional, excludes nothing by default
+      - keep 
 ```
 
 ### Docker
@@ -38,10 +45,12 @@ $ docker run -v $PWD/config.yml:/config.yml ghcr.io/hrenard/cleanarr
 - [ ] Radarr
   - [x] Days policy
   - [x] Size policy
+  - [x] Tag filter
   - [ ] Quantity policy
 - [ ] Sonarr
   - [x] Days policy
   - [x] Size policy
+  - [x] Tag filter
   - [ ] Quantity policy
   - [ ] Unmonitor season when all episodes are unmonitored ?
   - [ ] Remove serie when all episodes are unmonitored ?

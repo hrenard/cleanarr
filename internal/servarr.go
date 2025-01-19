@@ -1,47 +1,41 @@
 package internal
 
 import (
-	"encoding/json"
-	"sync"
+	"slices"
 
 	units "github.com/docker/go-units"
-	resty "github.com/go-resty/resty/v2"
 	log "github.com/sirupsen/logrus"
+	"golift.io/starr"
 )
 
 type ServarrConfig struct {
-	Name     string
-	HostPath string
-	ApiKey   string
-	MaxDays  *int
-	MaxSize  *string
-	MaxFiles *int
-}
-
-type IServarr interface {
-	Tick(*sync.WaitGroup)
+	Name        string
+	HostPath    string
+	ApiKey      string
+	MaxDays     *int
+	MaxSize     *string
+	MaxFiles    *int
+	IncludeTags []string
+	ExcludeTags []string
 }
 
 type Servarr struct {
-	client   *resty.Client
-	log      *log.Entry
-	maxDays  int
-	maxBytes int
+	log            *log.Entry
+	maxDays        int
+	maxBytes       int
+	includeTags    []string
+	excludeTags    []string
+	includeTagIDs  []int
+	excludeTagsIDs []int
 }
 
-type jsonError struct {
-	Error string `json:"error"`
-}
-
-func NewServarr(config ServarrConfig, app string) Servarr {
+func ParseConfig(config ServarrConfig) (Servarr, *starr.Config) {
 	servarr := Servarr{
-		client: resty.New().
-			SetHostURL(config.HostPath+"/api/v3").
-			SetQueryParam("apikey", config.ApiKey),
 		log: log.WithFields(log.Fields{
-			"app":  app,
 			"name": config.Name,
 		}),
+		includeTags: config.IncludeTags,
+		excludeTags: config.ExcludeTags,
 	}
 
 	if config.MaxDays == nil && config.MaxSize == nil {
@@ -60,25 +54,38 @@ func NewServarr(config ServarrConfig, app string) Servarr {
 		servarr.maxBytes = int(maxBytes)
 	}
 
-	return servarr
+	return servarr, starr.New(config.ApiKey, config.HostPath, 0)
 }
 
-func (s Servarr) Request() *resty.Request {
-	return s.client.R()
+func (s *Servarr) Log() *log.Entry {
+	return s.log
 }
 
-func (s Servarr) handleError(resp *resty.Response, err error) {
-	if err != nil {
-		s.log.Errorf("request failed: %s", err)
-	}
+func (s *Servarr) MaxDays() int {
+	return s.maxDays
+}
 
-	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		var jsonErr jsonError
-		errLog := s.log.WithField("http_status", resp.StatusCode())
-		if err := json.Unmarshal(resp.Body(), &jsonErr); err != nil {
-			errLog.Errorf("request error: %s", resp.Body())
-		} else {
-			errLog.Errorf("request error: %s", jsonErr.Error)
+func (s *Servarr) MaxBytes() int {
+	return s.maxBytes
+}
+
+func (s *Servarr) IncludeTagIDs() []int {
+	return s.includeTagIDs
+}
+
+func (s *Servarr) ExcludeTagIDs() []int {
+	return s.excludeTagsIDs
+}
+
+func (s *Servarr) refreshTags(tags []*starr.Tag) {
+	s.includeTagIDs = make([]int, len(s.includeTags))
+	s.excludeTagsIDs = make([]int, len(s.excludeTags))
+	for _, tag := range tags {
+		if i := slices.Index(s.includeTags, tag.Label); i > -1 {
+			s.includeTagIDs[i] = tag.ID
+		}
+		if i := slices.Index(s.excludeTags, tag.Label); i > -1 {
+			s.excludeTagsIDs[i] = tag.ID
 		}
 	}
 }

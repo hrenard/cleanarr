@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
 	"sync"
-	"time"
+	"syscall"
 
 	"github.com/hrenard/cleanarr/internal"
 	log "github.com/sirupsen/logrus"
@@ -12,6 +14,7 @@ import (
 
 type CleanarrConfig struct {
 	Interval int
+	DryRun   bool
 	Radarr   []internal.ServarrConfig
 	Sonarr   []internal.ServarrConfig
 }
@@ -19,7 +22,7 @@ type CleanarrConfig struct {
 func main() {
 	log.SetFormatter(&log.TextFormatter{})
 	log.SetOutput(os.Stdout)
-	// log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.DebugLevel)
 
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -38,24 +41,24 @@ func main() {
 		log.Fatalf("No radarr configured")
 	}
 
-	servarrList := make([]internal.IServarr, len(config.Radarr)+len(config.Sonarr))
+	providers := make([]internal.Provider, len(config.Radarr)+len(config.Sonarr))
 
 	for i, radarrConf := range config.Radarr {
-		servarrList[i] = internal.NewRadarr(radarrConf)
+		providers[i] = internal.NewRadarr(radarrConf)
 	}
 
 	for i, sonarrConf := range config.Sonarr {
-		servarrList[len(config.Radarr)+i] = internal.NewSonarr(sonarrConf)
+		providers[len(config.Radarr)+i] = internal.NewSonarr(sonarrConf)
 	}
 
-	log.Infof("Cleanarr is running")
-	for {
-		var wg sync.WaitGroup
-		for _, s := range servarrList {
-			wg.Add(1)
-			go s.Tick(&wg)
-		}
-		wg.Wait()
-		time.Sleep(time.Minute * time.Duration(config.Interval))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Kill, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var wg sync.WaitGroup
+	for _, provider := range providers {
+		wg.Add(1)
+		go internal.CronProcess(ctx, &wg, provider, config.Interval, config.DryRun)
 	}
+	log.Infof("Cleanarr is running")
+	wg.Wait()
 }

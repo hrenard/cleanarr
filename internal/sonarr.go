@@ -1,127 +1,120 @@
 package internal
 
 import (
+	"context"
 	"fmt"
-	"sync"
 
+	"github.com/alitto/pond/v2"
 	units "github.com/docker/go-units"
+	"golift.io/starr/sonarr"
 )
 
 type Sonarr struct {
-	Servarr
+	*sonarr.Sonarr
+	*Servarr
 }
 
 func NewSonarr(config ServarrConfig) Sonarr {
+	servarr, starrConf := ParseConfig(config)
+	servarr.log = servarr.log.WithField("app", "sonarr")
 	return Sonarr{
-		Servarr: NewServarr(config, "sonarr"),
+		Servarr: &servarr,
+		Sonarr:  sonarr.New(starrConf),
 	}
 }
 
-func (s Sonarr) Series() []Serie {
-	var series []Serie
-	resp, err := s.Request().
-		SetResult(&series).
-		Get("/series")
-
-	s.handleError(resp, err)
-
-	return series
+func (s Sonarr) RefreshTags(ctx context.Context) error {
+	tags, err := s.GetTagsContext(ctx)
+	if err == nil {
+		s.refreshTags(tags)
+	}
+	return err
 }
 
-func (s Sonarr) EpisodeFile(fileId int) *EpisodeFile {
-	var file EpisodeFile
-	resp, err := s.Request().
-		SetResult(&file).
-		Get(fmt.Sprintf("/episodefile/%d", fileId))
-
-	s.handleError(resp, err)
-
-	return &file
+func (s Sonarr) Fetch(ctx context.Context) (Cleanables, error) {
+	series, err := s.GetSeriesContext(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	pool := pond.NewResultPool[Cleanables](10)
+	tasks := make([]pond.Result[Cleanables], len(series))
+	for i, serie := range series {
+		serie := serie
+		tasks[i] = pool.SubmitErr(func() (Cleanables, error) {
+			episodes, err := s.GetSeriesEpisodesContext(ctx, serie.ID)
+			if err != nil {
+				return nil, err
+			}
+			files, err := s.GetSeriesEpisodeFilesContext(ctx, serie.ID)
+			if err != nil {
+				return nil, err
+			}
+			filesMap := map[int64]*sonarr.EpisodeFile{}
+			for _, file := range files {
+				filesMap[file.ID] = file
+			}
+			cleanables := Cleanables{}
+			for _, episode := range episodes {
+				if episode.HasFile {
+					file, ok := filesMap[episode.EpisodeFileID]
+					if !ok {
+						return nil, fmt.Errorf("file not found for episode %d", episode.ID)
+					}
+					cleanables = append(cleanables, Episode{
+						Series:      serie,
+						Episode:     episode,
+						EpisodeFile: file,
+					})
+				}
+			}
+			return cleanables, nil
+		})
+	}
+	cleanables := make(Cleanables, 0)
+	for _, task := range tasks {
+		c, err := task.Wait()
+		if err != nil {
+			pool.Stop()
+			return nil, err
+		}
+		cleanables = append(cleanables, c...)
+	}
+	return cleanables, nil
 }
 
-func (s Sonarr) SerieEpisodes(serie Serie, c chan []Episode) {
-	var episodes []Episode
-	resp, err := s.Request().
-		SetQueryParam("seriesId", fmt.Sprintf("%d", serie.Id)).
-		SetResult(&episodes).
-		Get("/episode")
-
-	s.handleError(resp, err)
-
-	for i, episode := range episodes {
-		episodes[i].Serie = &serie
-		if episode.HasFile {
-			episodes[i].File = s.EpisodeFile(episode.FileId)
+func (s Sonarr) Clean(ctx context.Context, cleanables Cleanables, dryRun bool) error {
+	episodes := []Episode{}
+	ids := []int64{}
+	for _, cleanable := range cleanables {
+		episode, ok := cleanable.(Episode)
+		if !ok {
+			return fmt.Errorf("cleanable is not of type Episode")
+		}
+		episodes = append(episodes, episode)
+		ids = append(ids, episode.Episode.ID)
+	}
+	if !dryRun {
+		_, err := s.MonitorEpisodeContext(ctx, ids, false)
+		if err != nil {
+			return err
 		}
 	}
-	c <- episodes
-}
-
-func (s Sonarr) Episodes() EpisodeList {
-	series := s.Series()
-
-	c := make(chan []Episode)
-	for _, serie := range series {
-		go s.SerieEpisodes(serie, c)
-	}
-
-	var episodes []Episode
-	for i := 0; i < len(series); i++ {
-		episodes = append(episodes, <-c...)
-	}
-
-	return episodes
-}
-
-func (s Sonarr) DeleteEpisodes(episodes EpisodeList) {
 	for _, episode := range episodes {
-		resp, err := s.Request().
-			Delete(fmt.Sprintf("/episodefile/%d", episode.FileId))
-
-		s.handleError(resp, err)
-
-		s.log.Debugf("S%dE%d of %s deleted", episode.SeasonNumber, episode.EpisodeNumber, episode.Serie.Title)
+		s.log.Debugf("S%dE%d of %s unmonitored", episode.Episode.SeasonNumber, episode.EpisodeNumber, episode.Series.Title)
 	}
-	s.log.Infof("%d episodes deleted, %s freed", len(episodes), units.BytesSize(float64(episodes.Size())))
-}
-
-func (s Sonarr) UnmonitorEpisodes(episodes EpisodeList) {
-	body := episodes.MonitorUpdate(false)
-
-	resp, err := s.Request().
-		SetBody(body).
-		Put("/episode/monitor")
-
-	s.handleError(resp, err)
+	s.log.Infof("%d epsiodes unmonitored", len(cleanables))
 
 	for _, episode := range episodes {
-		s.log.Debugf("S%dE%d of %s unmonitored", episode.SeasonNumber, episode.EpisodeNumber, episode.Serie.Title)
-	}
-
-	s.log.Infof(" %d epsiodes unmonitored", len(episodes))
-}
-
-func (s Sonarr) Tick(wg *sync.WaitGroup) {
-	episodes := s.Episodes().
-		WithFile().
-		ByFileDate()
-
-	var garbage EpisodeList
-	totalSize := episodes.Size()
-
-	for _, episode := range episodes {
-		if episode.Expired(s.maxDays) || (s.maxBytes > 0 && totalSize-garbage.Size() > s.maxBytes) {
-			garbage = append(garbage, episode)
+		if !dryRun {
+			err := s.DeleteEpisodeFileContext(ctx, episode.EpisodeFileID)
+			if err != nil {
+				return err
+			}
 		}
+		s.log.Debugf("S%dE%d of %s deleted", episode.Episode.SeasonNumber, episode.EpisodeNumber, episode.Series.Title)
 	}
-
-	if len(garbage) > 0 {
-		for _, episode := range garbage {
-			s.log.Printf("%s S%dE%d", episode.Serie.Title, episode.SeasonNumber, episode.EpisodeNumber)
-		}
-		s.UnmonitorEpisodes(garbage)
-		s.DeleteEpisodes(garbage)
-	}
-
-	wg.Done()
+	s.log.Infof("%d episodes deleted, %s freed", len(cleanables), units.BytesSize(float64(cleanables.Size())))
+	return nil
 }

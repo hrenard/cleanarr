@@ -1,67 +1,63 @@
 package internal
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"sync"
 
 	units "github.com/docker/go-units"
+	"golift.io/starr/radarr"
 )
 
 type Radarr struct {
-	Servarr
+	*radarr.Radarr
+	*Servarr
 }
 
 func NewRadarr(config ServarrConfig) Radarr {
+	servarr, starrConf := ParseConfig(config)
+	servarr.log = servarr.log.WithField("app", "radarr")
 	return Radarr{
-		Servarr: NewServarr(config, "radarr"),
+		Servarr: &servarr,
+		Radarr:  radarr.New(starrConf),
 	}
 }
 
-func (r Radarr) Movies() MovieList {
-	resp, err := r.Request().Get("/movie")
-	r.handleError(resp, err)
-
-	var movies []Movie
-	if err := json.Unmarshal(resp.Body(), &movies); err != nil {
-		r.log.Error(err)
+func (r Radarr) RefreshTags(ctx context.Context) error {
+	tags, err := r.GetTagsContext(ctx)
+	if err == nil {
+		r.refreshTags(tags)
 	}
-
-	return movies
+	return err
 }
 
-func (r Radarr) DeleteMovie(movie Movie) {
-	resp, err := r.Request().
-		SetQueryParam("deleteFiles", "true").
-		Delete(fmt.Sprintf("/movie/%d", movie.Id))
-	r.handleError(resp, err)
-	r.log.Debugf("%s deleted", movie.Title)
-}
-
-func (r Radarr) DeleteMovies(movies MovieList) {
+func (r Radarr) Fetch(ctx context.Context) (Cleanables, error) {
+	movies, err := r.GetMovieContext(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	cleanables := make(Cleanables, 0)
 	for _, movie := range movies {
-		r.DeleteMovie(movie)
-	}
-	r.log.Printf("%d movies deleted, %s freed", len(movies), units.BytesSize(float64(movies.Size())))
-}
-
-func (r Radarr) Tick(wg *sync.WaitGroup) {
-	movies := r.Movies().
-		WithFile().
-		ByFileDate()
-
-	var garbage MovieList
-	totalSize := movies.Size()
-
-	for _, movie := range movies {
-		if movie.Expired(r.maxDays) || (r.maxBytes > 0 && totalSize-garbage.Size() > r.maxBytes) {
-			garbage = append(garbage, movie)
+		if movie.HasFile {
+			cleanables = append(cleanables, Movie(*movie))
 		}
 	}
+	return cleanables, nil
+}
 
-	if len(garbage) > 0 {
-		r.DeleteMovies(garbage)
+func (r Radarr) Clean(ctx context.Context, cleanables Cleanables, dryRun bool) error {
+	for _, cleanable := range cleanables {
+		movie, ok := cleanable.(Movie)
+		if !ok {
+			return fmt.Errorf("cleanable is not of type Movie")
+		}
+		if !dryRun {
+			err := r.DeleteMovieContext(ctx, movie.ID, true, false)
+			if err != nil {
+				return err
+			}
+		}
+		r.log.Debugf("%s deleted", movie.Title)
 	}
-
-	wg.Done()
+	r.log.Printf("%d movies deleted, %s freed", len(cleanables), units.BytesSize(float64(cleanables.Size())))
+	return nil
 }
