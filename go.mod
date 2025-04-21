@@ -3,7 +3,7 @@ module github.com/hrenard/cleanarr
 go 1.23
 
 require (
-	github.com/alitto/pond/v2 v2.1.6
+	github.com/alitto/pond/v2 v2.3.4
 	github.com/docker/go-units v0.5.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.19.0
