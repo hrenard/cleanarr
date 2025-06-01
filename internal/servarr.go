@@ -1,7 +1,9 @@
 package internal
 
 import (
+	"os"
 	"slices"
+	"strings"
 
 	units "github.com/docker/go-units"
 	log "github.com/sirupsen/logrus"
@@ -12,6 +14,7 @@ type ServarrConfig struct {
 	Name        string
 	HostPath    string
 	ApiKey      string
+	ApiKeyFile  string
 	MaxDays     *int
 	MaxSize     *string
 	MaxFiles    *int
@@ -54,7 +57,19 @@ func ParseConfig(config ServarrConfig) (Servarr, *starr.Config) {
 		servarr.maxBytes = int(maxBytes)
 	}
 
-	return servarr, starr.New(config.ApiKey, config.HostPath, 0)
+	apiKey := config.ApiKey
+	if apiKey == "" {
+		if config.ApiKeyFile == "" {
+			servarr.log.Fatal("apiKey or apiKeyFile must be set")
+		}
+		rawKey, err := os.ReadFile(config.ApiKeyFile)
+		if err != nil {
+			servarr.log.Fatalf("Failed to read apiKeyFile %s: %s", config.ApiKeyFile, err)
+		}
+		apiKey = strings.TrimSpace(string(rawKey))
+	}
+
+	return servarr, starr.New(apiKey, config.HostPath, 0)
 }
 
 func (s *Servarr) Log() *log.Entry {
