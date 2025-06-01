@@ -27,6 +27,9 @@ func main() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
+	if confPath := os.Getenv("CLEANARR_CONFIG"); confPath != "" {
+		viper.SetConfigFile(confPath)
+	}
 	viper.SetDefault("interval", 1)
 	if err := viper.ReadInConfig(); err != nil {
 		log.Fatalf("Failed to read config file: %s \n", err.Error())
